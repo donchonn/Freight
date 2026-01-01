@@ -1,0 +1,26 @@
+# Build results
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build logs
+*.log
+msbuild.log
+
+# NuGet
+packages/
+*.nupkg
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Installer output (optional - uncomment if you want to track installer files)
+# Installer/

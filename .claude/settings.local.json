@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcopy:*)",
+      "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" \"G:\\내 드라이브\\01. Programing\\01. C#\\00. Freight\\Frieght64_3.0\\Freight3.0.csproj\" -t:Build -p:Configuration=Release -p:Platform=x86)",
+      "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\":*)",
+      "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" \"G:\\내 드라이브\\01. Programing\\01. C#\\00. Freight\\Frieght64_3.0\\Freight3.0.csproj\" -t:Rebuild -p:Configuration=Release -p:Platform=x86 -v:minimal)",
+      "Bash(taskkill:*)",
+      "Bash(\"C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe\" \"G:\\내 드라이브\\01. Programing\\01. C#\\00. Freight\\Frieght64_3.02\\Freight3.0.csproj\" -t:Build -p:Configuration=Release -p:Platform=x86 -v:minimal)",
+      "Bash(nuget restore:*)",
+      "Bash(cmd /c:*)",
+      "Bash(dir \"G:\\내 드라이브\\01. Programing\\01. C#\\00. Freight\")",
+      "Bash(dir \"G:\\내 드라이브\\01. Programing\\01. C#\\00. Freight\\Frieght64_3.0\")",
+      "Bash(powershell:*)",
+      "Bash(dir:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -6,7 +6,22 @@ using System.Runtime.InteropServices;
 namespace Freight
 {
     /// <summary>
-    /// 저수준 마우스 후킹 클래스 - 작업표시줄 위에서 스크롤로 볼륨 조절
+    /// 마우스 이벤트 인자 클래스
+    /// </summary>
+    public class MouseHookEventArgs : EventArgs
+    {
+        public Point Location { get; }
+        public bool Handled { get; set; }
+
+        public MouseHookEventArgs(Point location)
+        {
+            Location = location;
+            Handled = false;
+        }
+    }
+
+    /// <summary>
+    /// 저수준 마우스 후킹 클래스 - 작업표시줄 위에서 스크롤로 볼륨 조절 + 제스처 지원
     /// 2.3 버전 방식 적용: WindowFromPoint + GetAncestor 사용
     /// </summary>
     public class LowLevelMouseHook : IDisposable
@@ -18,13 +33,40 @@ namespace Freight
         private const int APPCOMMAND_VOLUME_DOWN = 0x90000;
         private const uint GA_ROOTOWNER = 3;
 
+        // 마우스 버튼 및 이동 메시지
+        private const int WM_MOUSEMOVE = 0x0200;
+        private const int WM_RBUTTONDOWN = 0x0204;
+        private const int WM_RBUTTONUP = 0x0205;
+
         private static LowLevelMouseProc _proc;
         private static IntPtr _hookID = IntPtr.Zero;
         private bool _disposed = false;
 
+        // 제스처 관련 이벤트
+        public event EventHandler<MouseHookEventArgs> RightButtonDown;
+        public event EventHandler<MouseHookEventArgs> RightButtonUp;
+        public event EventHandler<MouseHookEventArgs> MouseMove;
+
+        // 우클릭 컨텍스트 메뉴 억제 플래그 (외부에서 설정 가능)
+        public bool SuppressRightClick { get; set; }
+
+        // 우클릭 상태 추적
+        private static bool isRightButtonDown = false;
+        public bool IsRightButtonDown => isRightButtonDown;
+
+        // 제스처 감지를 위한 시작점 및 이동 거리 추적
+        private static Point rightButtonDownPoint;
+        private static double totalMovementDistance = 0;
+        private static Point lastMovePoint;
+        private const double MIN_GESTURE_DISTANCE = 30.0;  // 제스처로 인식할 최소 이동 거리
+
+        // 인스턴스 참조 (static callback에서 사용)
+        private static LowLevelMouseHook _instance;
+
         public LowLevelMouseHook()
         {
             _proc = HookCallback;
+            _instance = this;
         }
 
         public bool Hook()
@@ -93,29 +135,87 @@ namespace Freight
 
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
-            if (nCode >= 0 && wParam.ToInt32() == WM_MOUSEWHEEL)
+            if (nCode >= 0)
             {
+                int msg = wParam.ToInt32();
+
                 try
                 {
-                    if (IsMouseOverTaskbar())
+                    MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
+                    Point location = new Point(hookStruct.pt.x, hookStruct.pt.y);
+
+                    // 마우스 휠 처리 (작업표시줄 볼륨)
+                    if (msg == WM_MOUSEWHEEL)
                     {
-                        MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-
-                        // mouseData의 상위 워드가 휠 델타값
-                        int delta = (short)((hookStruct.mouseData >> 16) & 0xFFFF);
-
-                        // 2.3 버전 방식: GetForegroundWindow()에 SendMessage
-                        IntPtr foregroundWindow = GetForegroundWindow();
-
-                        if (delta > 0)
+                        if (IsMouseOverTaskbar())
                         {
-                            // 스크롤 업 - 볼륨 증가
-                            SendMessageW(foregroundWindow, WM_APPCOMMAND, foregroundWindow, (IntPtr)APPCOMMAND_VOLUME_UP);
+                            int delta = (short)((hookStruct.mouseData >> 16) & 0xFFFF);
+                            IntPtr foregroundWindow = GetForegroundWindow();
+
+                            if (delta > 0)
+                            {
+                                SendMessageW(foregroundWindow, WM_APPCOMMAND, foregroundWindow, (IntPtr)APPCOMMAND_VOLUME_UP);
+                            }
+                            else if (delta < 0)
+                            {
+                                SendMessageW(foregroundWindow, WM_APPCOMMAND, foregroundWindow, (IntPtr)APPCOMMAND_VOLUME_DOWN);
+                            }
                         }
-                        else if (delta < 0)
+                    }
+                    // 우클릭 다운 - 드래그 선택 박스 방지를 위해 차단
+                    else if (msg == WM_RBUTTONDOWN)
+                    {
+                        isRightButtonDown = true;
+                        rightButtonDownPoint = location;
+                        lastMovePoint = location;
+                        totalMovementDistance = 0;
+
+                        var args = new MouseHookEventArgs(location);
+                        _instance?.RightButtonDown?.Invoke(_instance, args);
+
+                        // 우클릭을 차단하여 Windows 드래그 선택 박스 방지
+                        return (IntPtr)1;
+                    }
+                    // 우클릭 업
+                    else if (msg == WM_RBUTTONUP)
+                    {
+                        bool wasRightButtonDown = isRightButtonDown;
+                        isRightButtonDown = false;
+
+                        // 이벤트 핸들러 호출 (제스처 실행)
+                        var args = new MouseHookEventArgs(location);
+                        _instance?.RightButtonUp?.Invoke(_instance, args);
+
+                        // 제스처가 있었는지 확인 (이동 거리 또는 외부 플래그)
+                        bool gesturePerformed = totalMovementDistance >= MIN_GESTURE_DISTANCE ||
+                                                (_instance?.SuppressRightClick == true);
+
+                        // 플래그 초기화
+                        if (_instance != null)
                         {
-                            // 스크롤 다운 - 볼륨 감소
-                            SendMessageW(foregroundWindow, WM_APPCOMMAND, foregroundWindow, (IntPtr)APPCOMMAND_VOLUME_DOWN);
+                            _instance.SuppressRightClick = false;
+                        }
+                        totalMovementDistance = 0;
+
+                        // 제스처가 수행되었으면 컨텍스트 메뉴 억제
+                        if (wasRightButtonDown && gesturePerformed)
+                        {
+                            return (IntPtr)1; // 이벤트 차단
+                        }
+                    }
+                    // 마우스 이동
+                    else if (msg == WM_MOUSEMOVE)
+                    {
+                        if (isRightButtonDown)
+                        {
+                            // 이동 거리 누적
+                            double dx = location.X - lastMovePoint.X;
+                            double dy = location.Y - lastMovePoint.Y;
+                            totalMovementDistance += Math.Sqrt(dx * dx + dy * dy);
+                            lastMovePoint = location;
+
+                            var args = new MouseHookEventArgs(location);
+                            _instance?.MouseMove?.Invoke(_instance, args);
                         }
                     }
                 }

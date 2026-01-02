@@ -18,6 +18,18 @@ namespace Freight
         private LowLevelMouseHook mouseHook;
         private bool isSettingsFormOpen = false;
 
+        // 마우스 제스처 관련
+        private MouseGesture mouseGesture;
+        private GestureOverlayForm gestureOverlay;
+        private DateTime lastOverlayUpdate = DateTime.MinValue;
+        private const int OVERLAY_UPDATE_INTERVAL_MS = 16;  // ~60fps max
+
+        // 브라우저 프로세스 이름 목록
+        private static readonly string[] BrowserProcessNames = {
+            "chrome", "firefox", "msedge", "iexplore",
+            "opera", "brave", "vivaldi", "whale", "safari"
+        };
+
         // 시스템 볼륨 조절 컨트롤 변수
         private const int APPCOMMAND_VOLUME_MUTE = 0x80000;
         private const int APPCOMMAND_VOLUME_UP = 0xA0000;
@@ -46,6 +58,7 @@ namespace Freight
         private const int SW_RESTORE = 9;
         private const int SW_MAXIMIZE = 3;
         private const int SW_SHOWNORMAL = 1;
+        private const int SW_MINIMIZE = 6;
 
         // 창 최대화 상태 확인용
         [DllImport("user32.dll")]
@@ -119,13 +132,23 @@ namespace Freight
                 keyboardHook.KeyDown += KeyboardHook_KeyDown;
                 keyboardHook.Hook();
 
-                // 전역 마우스 후킹 설정 (작업표시줄 볼륨 조절용)
+                // 전역 마우스 후킹 설정 (작업표시줄 볼륨 조절용 + 제스처)
                 mouseHook = new LowLevelMouseHook();
                 bool hookResult = mouseHook.Hook();
                 if (!hookResult)
                 {
                     MessageBox.Show("마우스 후킹 실패!", "경고", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
+
+                // 마우스 제스처 초기화
+                mouseGesture = new MouseGesture();
+                gestureOverlay = new GestureOverlayForm();
+
+                // 마우스 제스처 이벤트 연결
+                mouseHook.RightButtonDown += MouseHook_RightButtonDown;
+                mouseHook.RightButtonUp += MouseHook_RightButtonUp;
+                mouseHook.MouseMove += MouseHook_MouseMove;
+                mouseGesture.GestureDetected += MouseGesture_GestureDetected;
             }
             catch (Exception ex)
             {
@@ -641,5 +664,190 @@ namespace Freight
         {
             this.BorderRadius = 0;
         }
+
+        #region 마우스 제스처 처리
+
+        /// <summary>
+        /// 우클릭 시작 - 제스처 기록 시작
+        /// </summary>
+        private void MouseHook_RightButtonDown(object sender, MouseHookEventArgs e)
+        {
+            try
+            {
+                lastOverlayUpdate = DateTime.MinValue;
+                Point location = e.Location;
+                this.BeginInvoke((MethodInvoker)delegate
+                {
+                    mouseGesture.StartRecording(location);
+                    gestureOverlay.ShowOverlay();
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RightButtonDown 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 마우스 이동 - 제스처 포인트 추가
+        /// </summary>
+        private void MouseHook_MouseMove(object sender, MouseHookEventArgs e)
+        {
+            try
+            {
+                if (mouseGesture.IsRecording)
+                {
+                    mouseGesture.AddPoint(e.Location);
+
+                    // UI 업데이트 스로틀링 (큐 오버플로우 방지)
+                    DateTime now = DateTime.Now;
+                    if ((now - lastOverlayUpdate).TotalMilliseconds >= OVERLAY_UPDATE_INTERVAL_MS)
+                    {
+                        lastOverlayUpdate = now;
+                        var points = mouseGesture.GesturePoints;
+                        this.BeginInvoke((MethodInvoker)delegate
+                        {
+                            gestureOverlay.UpdatePoints(points);
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MouseMove 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 우클릭 종료 - 제스처 인식 및 실행
+        /// </summary>
+        private void MouseHook_RightButtonUp(object sender, MouseHookEventArgs e)
+        {
+            try
+            {
+                this.BeginInvoke((MethodInvoker)delegate
+                {
+                    gestureOverlay.HideOverlay();
+                    mouseGesture.EndRecording();
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RightButtonUp 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 제스처 감지 시 동작 실행
+        /// </summary>
+        private void MouseGesture_GestureDetected(object sender, MouseGesture.GestureEventArgs e)
+        {
+            try
+            {
+                switch (e.Gesture)
+                {
+                    case MouseGesture.GestureType.Up:
+                        // 위로 제스처 = Home 키
+                        SendKeys.SendWait("{HOME}");
+                        Debug.WriteLine("제스처: Up → Home");
+                        break;
+
+                    case MouseGesture.GestureType.Down:
+                        // 아래로 제스처 = Page Down 키
+                        SendKeys.SendWait("{PGDN}");
+                        Debug.WriteLine("제스처: Down → PageDown");
+                        break;
+
+                    case MouseGesture.GestureType.Left:
+                        // 왼쪽 제스처 = Backspace 키
+                        SendKeys.SendWait("{BACKSPACE}");
+                        Debug.WriteLine("제스처: Left → Backspace");
+                        break;
+
+                    case MouseGesture.GestureType.DownRight:
+                        // 아래+오른쪽 제스처 = 창/탭 닫기
+                        if (IsBrowserWindow())
+                        {
+                            // 브라우저: Ctrl+F4 (탭 닫기)
+                            SendKeys.SendWait("^{F4}");
+                            Debug.WriteLine("제스처: DownRight → Ctrl+F4 (브라우저)");
+                        }
+                        else
+                        {
+                            // 일반 프로그램: Alt+F4 (창 닫기)
+                            SendKeys.SendWait("%{F4}");
+                            Debug.WriteLine("제스처: DownRight → Alt+F4");
+                        }
+                        break;
+
+                    case MouseGesture.GestureType.DownLeft:
+                        // 대각선 왼쪽 아래 제스처 = 창 최소화
+                        MinimizeForegroundWindow();
+                        Debug.WriteLine("제스처: DownLeft → 최소화");
+                        break;
+
+                    default:
+                        Debug.WriteLine($"알 수 없는 제스처: {e.Gesture}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"제스처 실행 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 현재 포그라운드 창이 브라우저인지 확인
+        /// </summary>
+        private bool IsBrowserWindow()
+        {
+            try
+            {
+                IntPtr hWnd = GetForegroundWindow();
+                if (hWnd == IntPtr.Zero) return false;
+
+                uint processId;
+                GetWindowThreadProcessId(hWnd, out processId);
+
+                Process process = Process.GetProcessById((int)processId);
+                string processName = process.ProcessName.ToLower();
+
+                foreach (string browserName in BrowserProcessNames)
+                {
+                    if (processName.Contains(browserName))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"브라우저 확인 오류: {ex.Message}");
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 포그라운드 창 최소화
+        /// </summary>
+        private void MinimizeForegroundWindow()
+        {
+            try
+            {
+                IntPtr hWnd = GetForegroundWindow();
+                if (hWnd != IntPtr.Zero)
+                {
+                    ShowWindow(hWnd, SW_MINIMIZE);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"창 최소화 오류: {ex.Message}");
+            }
+        }
+
+        #endregion
     }
 }

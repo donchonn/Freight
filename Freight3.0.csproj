@@ -129,6 +129,10 @@
     <Compile Include="Run.cs" />
     <Compile Include="LowLevelKeyboardHook.cs" />
     <Compile Include="LowLevelMouseHook.cs" />
+    <Compile Include="MouseGesture.cs" />
+    <Compile Include="GestureOverlayForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ModernForm.cs">
       <SubType>Form</SubType>
     </Compile>

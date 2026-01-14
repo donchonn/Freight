@@ -19,6 +19,11 @@ namespace Freight
         private Color tempBgColor;
         private Color tempTextColor;
 
+        // 제스처 설정용 임시 저장 변수
+        private bool tempGestureEnabled;
+        private Color tempGestureColor;
+        private float tempPenWidth;
+
         // 설정 변경 이벤트
         public event EventHandler SettingsApplied;
 
@@ -41,6 +46,7 @@ namespace Freight
         {
             LoadCommands();
             LoadGeneralSettings();
+            LoadGestureSettings();
         }
 
         private void LoadGeneralSettings()
@@ -424,35 +430,174 @@ namespace Freight
 
         private void btnTabCommands_Click(object sender, EventArgs e)
         {
-            SwitchTab(true);
+            SwitchTab(0);
         }
 
         private void btnTabGeneral_Click(object sender, EventArgs e)
         {
-            SwitchTab(false);
+            SwitchTab(1);
         }
 
-        private void SwitchTab(bool showCommands)
+        private void SwitchTab(int tabIndex)
         {
             // 패널 표시/숨김
-            panelCommands.Visible = showCommands;
-            panelGeneral.Visible = !showCommands;
+            panelCommands.Visible = (tabIndex == 0);
+            panelGeneral.Visible = (tabIndex == 1);
+            panelGesture.Visible = (tabIndex == 2);
 
-            // 탭 버튼 스타일 변경 (밝은 테마)
-            if (showCommands)
+            // 탭 버튼 스타일 변경 (다크 테마)
+            Color activeColor = Color.FromArgb(0, 120, 212);
+            Color inactiveColor = Color.FromArgb(55, 55, 55);
+            Color activeText = Color.White;
+            Color inactiveText = Color.FromArgb(160, 160, 160);
+
+            btnTabCommands.BackColor = (tabIndex == 0) ? activeColor : inactiveColor;
+            btnTabCommands.ForeColor = (tabIndex == 0) ? activeText : inactiveText;
+
+            btnTabGeneral.BackColor = (tabIndex == 1) ? activeColor : inactiveColor;
+            btnTabGeneral.ForeColor = (tabIndex == 1) ? activeText : inactiveText;
+
+            btnTabGesture.BackColor = (tabIndex == 2) ? activeColor : inactiveColor;
+            btnTabGesture.ForeColor = (tabIndex == 2) ? activeText : inactiveText;
+        }
+
+        private void btnTabGesture_Click(object sender, EventArgs e)
+        {
+            SwitchTab(2);
+        }
+
+        // ===== 제스처 설정 =====
+
+        private void LoadGestureSettings()
+        {
+            var gestureSettings = configManager.Settings.GestureSettings;
+
+            // 기본 설정 로드
+            tempGestureEnabled = gestureSettings.Enabled;
+            tempGestureColor = Color.FromArgb(gestureSettings.OverlayColor);
+            tempPenWidth = gestureSettings.PenWidth;
+
+            // UI 업데이트
+            chkGestureEnabled.Checked = tempGestureEnabled;
+            panelGestureColorPreview.BackColor = tempGestureColor;
+            numPenWidth.Value = (decimal)tempPenWidth;
+
+            // 콤보박스 초기화
+            InitializeActionComboBoxes();
+
+            // 액션 값 설정
+            SetComboBoxValue(cmbUpAction, gestureSettings.UpAction);
+            SetComboBoxValue(cmbDownAction, gestureSettings.DownAction);
+            SetComboBoxValue(cmbLeftAction, gestureSettings.LeftAction);
+            SetComboBoxValue(cmbRightAction, gestureSettings.RightAction);
+            SetComboBoxValue(cmbDownRightAction, gestureSettings.DownRightAction);
+            SetComboBoxValue(cmbDownLeftAction, gestureSettings.DownLeftAction);
+            SetComboBoxValue(cmbUpRightAction, gestureSettings.UpRightAction);
+            SetComboBoxValue(cmbUpLeftAction, gestureSettings.UpLeftAction);
+
+            // 대각선 제스처 값 설정
+            SetComboBoxValue(cmbDiagDownRightAction, gestureSettings.DiagDownRightAction);
+            SetComboBoxValue(cmbDiagDownLeftAction, gestureSettings.DiagDownLeftAction);
+            SetComboBoxValue(cmbDiagUpRightAction, gestureSettings.DiagUpRightAction);
+            SetComboBoxValue(cmbDiagUpLeftAction, gestureSettings.DiagUpLeftAction);
+        }
+
+        private void InitializeActionComboBoxes()
+        {
+            string[] actionNames = new string[]
             {
-                btnTabCommands.BackColor = Color.FromArgb(99, 102, 241);
-                btnTabCommands.ForeColor = Color.White;
-                btnTabGeneral.BackColor = Color.FromArgb(220, 220, 225);
-                btnTabGeneral.ForeColor = Color.FromArgb(100, 100, 110);
+                "없음",
+                "맨 위로 (Home)",
+                "맨 아래로 (End)",
+                "페이지 위 (PgUp)",
+                "페이지 아래 (PgDn)",
+                "뒤로 가기 (Alt+Left)",
+                "앞으로 가기 (Alt+Right)",
+                "창 닫기",
+                "탭 닫기 (Ctrl+W)",
+                "창 최소화",
+                "창 최대화/복원"
+            };
+
+            var comboBoxes = new[] { cmbUpAction, cmbDownAction, cmbLeftAction, cmbRightAction,
+                                     cmbDownRightAction, cmbDownLeftAction, cmbUpRightAction, cmbUpLeftAction,
+                                     cmbDiagDownRightAction, cmbDiagDownLeftAction, cmbDiagUpRightAction, cmbDiagUpLeftAction };
+
+            foreach (var cmb in comboBoxes)
+            {
+                cmb.Items.Clear();
+                cmb.Items.AddRange(actionNames);
+            }
+        }
+
+        private void SetComboBoxValue(ComboBox cmb, GestureActionType action)
+        {
+            int index = (int)action;
+            if (index >= 0 && index < cmb.Items.Count)
+            {
+                cmb.SelectedIndex = index;
             }
             else
             {
-                btnTabCommands.BackColor = Color.FromArgb(220, 220, 225);
-                btnTabCommands.ForeColor = Color.FromArgb(100, 100, 110);
-                btnTabGeneral.BackColor = Color.FromArgb(99, 102, 241);
-                btnTabGeneral.ForeColor = Color.White;
+                cmb.SelectedIndex = 0;
             }
+        }
+
+        private GestureActionType GetComboBoxValue(ComboBox cmb)
+        {
+            if (cmb.SelectedIndex >= 0)
+            {
+                return (GestureActionType)cmb.SelectedIndex;
+            }
+            return GestureActionType.None;
+        }
+
+        private void btnGestureColor_Click(object sender, EventArgs e)
+        {
+            using (ColorDialog colorDialog = new ColorDialog())
+            {
+                colorDialog.Color = tempGestureColor;
+                colorDialog.FullOpen = true;
+
+                if (colorDialog.ShowDialog() == DialogResult.OK)
+                {
+                    tempGestureColor = colorDialog.Color;
+                    panelGestureColorPreview.BackColor = tempGestureColor;
+                }
+            }
+        }
+
+        private void btnApplyGesture_Click(object sender, EventArgs e)
+        {
+            var gestureSettings = configManager.Settings.GestureSettings;
+
+            // 기본 설정 저장
+            gestureSettings.Enabled = chkGestureEnabled.Checked;
+            gestureSettings.OverlayColor = Color.FromArgb(200, tempGestureColor.R, tempGestureColor.G, tempGestureColor.B).ToArgb();
+            gestureSettings.PenWidth = (float)numPenWidth.Value;
+
+            // 액션 저장
+            gestureSettings.UpAction = GetComboBoxValue(cmbUpAction);
+            gestureSettings.DownAction = GetComboBoxValue(cmbDownAction);
+            gestureSettings.LeftAction = GetComboBoxValue(cmbLeftAction);
+            gestureSettings.RightAction = GetComboBoxValue(cmbRightAction);
+            gestureSettings.DownRightAction = GetComboBoxValue(cmbDownRightAction);
+            gestureSettings.DownLeftAction = GetComboBoxValue(cmbDownLeftAction);
+            gestureSettings.UpRightAction = GetComboBoxValue(cmbUpRightAction);
+            gestureSettings.UpLeftAction = GetComboBoxValue(cmbUpLeftAction);
+
+            // 대각선 액션 저장
+            gestureSettings.DiagDownRightAction = GetComboBoxValue(cmbDiagDownRightAction);
+            gestureSettings.DiagDownLeftAction = GetComboBoxValue(cmbDiagDownLeftAction);
+            gestureSettings.DiagUpRightAction = GetComboBoxValue(cmbDiagUpRightAction);
+            gestureSettings.DiagUpLeftAction = GetComboBoxValue(cmbDiagUpLeftAction);
+
+            configManager.SaveSettings();
+
+            // 이벤트 발생
+            SettingsApplied?.Invoke(this, EventArgs.Empty);
+
+            ShowMessage("제스처 설정이 저장되었습니다.", "성공", MessageBoxIcon.Information);
         }
     }
 }

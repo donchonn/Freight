@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace Freight
 {
@@ -58,10 +59,13 @@ namespace Freight
         private static Point rightButtonDownPoint;
         private static double totalMovementDistance = 0;
         private static Point lastMovePoint;
-        private const double MIN_GESTURE_DISTANCE = 30.0;  // 제스처로 인식할 최소 이동 거리
+        private const double MIN_GESTURE_DISTANCE = 50.0;  // 제스처로 인식할 최소 이동 거리
 
         // 인스턴스 참조 (static callback에서 사용)
         private static LowLevelMouseHook _instance;
+
+        // SimulateRightClick에서 보낸 이벤트 구분용 마커
+        private static readonly IntPtr SIMULATED_CLICK_MARKER = new IntPtr(0x12345678);
 
         public LowLevelMouseHook()
         {
@@ -99,6 +103,46 @@ namespace Freight
                 _hookID = IntPtr.Zero;
                 System.Diagnostics.Debug.WriteLine("Mouse hook removed");
             }
+        }
+
+        /// <summary>
+        /// 수동으로 우클릭 이벤트 전송 (컨텍스트 메뉴 표시용)
+        /// </summary>
+        private static void SimulateRightClick(Point location)
+        {
+            INPUT[] inputs = new INPUT[2];
+
+            // Right button down
+            inputs[0] = new INPUT
+            {
+                type = INPUT_MOUSE,
+                mi = new MOUSEINPUT
+                {
+                    dx = 0,
+                    dy = 0,
+                    mouseData = 0,
+                    dwFlags = MOUSEEVENTF_RIGHTDOWN,
+                    time = 0,
+                    dwExtraInfo = SIMULATED_CLICK_MARKER
+                }
+            };
+
+            // Right button up
+            inputs[1] = new INPUT
+            {
+                type = INPUT_MOUSE,
+                mi = new MOUSEINPUT
+                {
+                    dx = 0,
+                    dy = 0,
+                    mouseData = 0,
+                    dwFlags = MOUSEEVENTF_RIGHTUP,
+                    time = 0,
+                    dwExtraInfo = SIMULATED_CLICK_MARKER
+                }
+            };
+
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
         }
 
         /// <summary>
@@ -144,6 +188,12 @@ namespace Freight
                     MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
                     Point location = new Point(hookStruct.pt.x, hookStruct.pt.y);
 
+                    // 우리가 SendInput으로 보낸 이벤트는 무시 (무한 루프 방지)
+                    if (hookStruct.dwExtraInfo == SIMULATED_CLICK_MARKER)
+                    {
+                        return CallNextHookEx(_hookID, nCode, wParam, lParam);
+                    }
+
                     // 마우스 휠 처리 (작업표시줄 볼륨)
                     if (msg == WM_MOUSEWHEEL)
                     {
@@ -162,7 +212,7 @@ namespace Freight
                             }
                         }
                     }
-                    // 우클릭 다운 - 드래그 선택 박스 방지를 위해 차단
+                    // 우클릭 다운 - 모든 앱에서 차단 (드래그 박스 방지)
                     else if (msg == WM_RBUTTONDOWN)
                     {
                         isRightButtonDown = true;
@@ -173,7 +223,8 @@ namespace Freight
                         var args = new MouseHookEventArgs(location);
                         _instance?.RightButtonDown?.Invoke(_instance, args);
 
-                        // 우클릭을 차단하여 Windows 드래그 선택 박스 방지
+                        // 모든 앱에서 RButtonDown 차단
+                        // 제스처 아니면 RButtonUp에서 수동으로 우클릭 전송
                         return (IntPtr)1;
                     }
                     // 우클릭 업
@@ -195,12 +246,22 @@ namespace Freight
                         {
                             _instance.SuppressRightClick = false;
                         }
+                        double movedDistance = totalMovementDistance;
                         totalMovementDistance = 0;
 
-                        // 제스처가 수행되었으면 컨텍스트 메뉴 억제
-                        if (wasRightButtonDown && gesturePerformed)
+                        if (wasRightButtonDown)
                         {
-                            return (IntPtr)1; // 이벤트 차단
+                            if (gesturePerformed)
+                            {
+                                // 제스처 수행됨 - 컨텍스트 메뉴 억제
+                                return (IntPtr)1;
+                            }
+                            else
+                            {
+                                // 제스처 아님 - 수동으로 우클릭 전송하여 컨텍스트 메뉴 표시
+                                SimulateRightClick(location);
+                                return (IntPtr)1; // 원본 이벤트는 차단
+                            }
                         }
                     }
                     // 마우스 이동
@@ -268,6 +329,32 @@ namespace Freight
             public int x;
             public int y;
         }
+
+        // SendInput 관련 구조체 및 상수
+        private const int INPUT_MOUSE = 0;
+        private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+        private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public uint mouseData;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct INPUT
+        {
+            public int type;
+            public MOUSEINPUT mi;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
         [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);

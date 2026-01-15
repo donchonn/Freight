@@ -45,7 +45,7 @@ namespace Freight
         private Point startPoint;
 
         // 최소 거리 임계값 (픽셀) - 이 이상 움직여야 제스처로 인식
-        private const int MinDistance = 30;
+        private const int MinDistance = 50;
         // 포인트 샘플링 간격 (픽셀)
         private const int SampleDistance = 5;
 

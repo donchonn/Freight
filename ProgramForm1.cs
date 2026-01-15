@@ -91,6 +91,13 @@ namespace Freight
         }
 
         [StructLayout(LayoutKind.Sequential)]
+        private struct POINT
+        {
+            public int x;
+            public int y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
         private struct MONITORINFO
         {
             public int cbSize;
@@ -112,6 +119,17 @@ namespace Freight
         [DllImport("user32.dll")]
         public static extern IntPtr SendMessageW(IntPtr hWnd, int Msg,
             IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(POINT Point);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+        private const uint GA_ROOTOWNER = 3;
+
+        // 제스처 대상 창 (마우스 아래 창)
+        private IntPtr gestureTargetWindow = IntPtr.Zero;
 
         public ProgramForm1()
         {
@@ -676,6 +694,14 @@ namespace Freight
             {
                 lastOverlayUpdate = DateTime.MinValue;
                 Point location = e.Location;
+
+                // 마우스 아래 창을 저장 (제스처 대상)
+                POINT pt = new POINT { x = location.X, y = location.Y };
+                IntPtr hwnd = WindowFromPoint(pt);
+                gestureTargetWindow = GetAncestor(hwnd, GA_ROOTOWNER);
+                if (gestureTargetWindow == IntPtr.Zero)
+                    gestureTargetWindow = hwnd;
+
                 this.BeginInvoke((MethodInvoker)delegate
                 {
                     mouseGesture.StartRecording(location);
@@ -738,58 +764,75 @@ namespace Freight
         }
 
         /// <summary>
+        /// 제스처 대상 창을 활성화
+        /// </summary>
+        private void ActivateGestureTarget()
+        {
+            if (gestureTargetWindow != IntPtr.Zero)
+            {
+                SetForegroundWindow(gestureTargetWindow);
+            }
+        }
+
+        /// <summary>
         /// 제스처 감지 시 동작 실행
         /// </summary>
         private void MouseGesture_GestureDetected(object sender, MouseGesture.GestureEventArgs e)
         {
             try
             {
+                // 참고: SetForegroundWindow는 다른 창의 Z-order에 영향을 줄 수 있으므로 호출하지 않음
+                // gestureTargetWindow는 IsBrowserWindow, MinimizeWindow 판단용으로만 사용
+
+                // 설정에서 제스처 액션 가져오기
+                var gestureSettings = ConfigManager.Instance.Settings.GestureSettings;
+                Freight.Models.GestureActionType action = Freight.Models.GestureActionType.None;
+
                 switch (e.Gesture)
                 {
                     case MouseGesture.GestureType.Up:
-                        // 위로 제스처 = Home 키
-                        SendKeys.SendWait("{HOME}");
-                        Debug.WriteLine("제스처: Up → Home");
+                        action = gestureSettings.UpAction;
                         break;
-
                     case MouseGesture.GestureType.Down:
-                        // 아래로 제스처 = Page Down 키
-                        SendKeys.SendWait("{PGDN}");
-                        Debug.WriteLine("제스처: Down → PageDown");
+                        action = gestureSettings.DownAction;
                         break;
-
                     case MouseGesture.GestureType.Left:
-                        // 왼쪽 제스처 = Backspace 키
-                        SendKeys.SendWait("{BACKSPACE}");
-                        Debug.WriteLine("제스처: Left → Backspace");
+                        action = gestureSettings.LeftAction;
                         break;
-
+                    case MouseGesture.GestureType.Right:
+                        action = gestureSettings.RightAction;
+                        break;
                     case MouseGesture.GestureType.DownRight:
-                        // 아래+오른쪽 제스처 = 창/탭 닫기
-                        if (IsBrowserWindow())
-                        {
-                            // 브라우저: Ctrl+F4 (탭 닫기)
-                            SendKeys.SendWait("^{F4}");
-                            Debug.WriteLine("제스처: DownRight → Ctrl+F4 (브라우저)");
-                        }
-                        else
-                        {
-                            // 일반 프로그램: Alt+F4 (창 닫기)
-                            SendKeys.SendWait("%{F4}");
-                            Debug.WriteLine("제스처: DownRight → Alt+F4");
-                        }
+                        action = gestureSettings.DownRightAction;
                         break;
-
                     case MouseGesture.GestureType.DownLeft:
-                        // 대각선 왼쪽 아래 제스처 = 창 최소화
-                        MinimizeForegroundWindow();
-                        Debug.WriteLine("제스처: DownLeft → 최소화");
+                        action = gestureSettings.DownLeftAction;
                         break;
-
+                    case MouseGesture.GestureType.UpRight:
+                        action = gestureSettings.UpRightAction;
+                        break;
+                    case MouseGesture.GestureType.UpLeft:
+                        action = gestureSettings.UpLeftAction;
+                        break;
+                    case MouseGesture.GestureType.DiagDownRight:
+                        action = gestureSettings.DiagDownRightAction;
+                        break;
+                    case MouseGesture.GestureType.DiagDownLeft:
+                        action = gestureSettings.DiagDownLeftAction;
+                        break;
+                    case MouseGesture.GestureType.DiagUpRight:
+                        action = gestureSettings.DiagUpRightAction;
+                        break;
+                    case MouseGesture.GestureType.DiagUpLeft:
+                        action = gestureSettings.DiagUpLeftAction;
+                        break;
                     default:
                         Debug.WriteLine($"알 수 없는 제스처: {e.Gesture}");
-                        break;
+                        return;
                 }
+
+                // 액션 실행
+                ExecuteGestureAction(action, e.Gesture);
             }
             catch (Exception ex)
             {
@@ -798,13 +841,91 @@ namespace Freight
         }
 
         /// <summary>
-        /// 현재 포그라운드 창이 브라우저인지 확인
+        /// 제스처 액션 실행
         /// </summary>
-        private bool IsBrowserWindow()
+        private void ExecuteGestureAction(Freight.Models.GestureActionType action, MouseGesture.GestureType gesture)
+        {
+            switch (action)
+            {
+                case Freight.Models.GestureActionType.None:
+                    Debug.WriteLine($"제스처: {gesture} → None (설정 안됨)");
+                    break;
+
+                case Freight.Models.GestureActionType.Home:
+                    SendKeys.SendWait("{HOME}");
+                    Debug.WriteLine($"제스처: {gesture} → Home");
+                    break;
+
+                case Freight.Models.GestureActionType.End:
+                    SendKeys.SendWait("{END}");
+                    Debug.WriteLine($"제스처: {gesture} → End");
+                    break;
+
+                case Freight.Models.GestureActionType.PageUp:
+                    SendKeys.SendWait("{PGUP}");
+                    Debug.WriteLine($"제스처: {gesture} → PageUp");
+                    break;
+
+                case Freight.Models.GestureActionType.PageDown:
+                    SendKeys.SendWait("{PGDN}");
+                    Debug.WriteLine($"제스처: {gesture} → PageDown");
+                    break;
+
+                case Freight.Models.GestureActionType.Backspace:
+                    // 뒤로 가기 (Alt+Left가 더 범용적임)
+                    SendKeys.SendWait("%{LEFT}");
+                    Debug.WriteLine($"제스처: {gesture} → Back (Alt+Left)");
+                    break;
+
+                case Freight.Models.GestureActionType.Forward:
+                    // 앞으로 가기 (Alt+Right)
+                    SendKeys.SendWait("%{RIGHT}");
+                    Debug.WriteLine($"제스처: {gesture} → Forward (Alt+Right)");
+                    break;
+
+                case Freight.Models.GestureActionType.CloseWindow:
+                    // 브라우저는 Ctrl+F4 (탭 닫기), 일반 앱은 Alt+F4 (창 닫기)
+                    if (IsBrowserWindow(GetForegroundWindow()))
+                    {
+                        SendKeys.SendWait("^{F4}");
+                        Debug.WriteLine($"제스처: {gesture} → CloseTab (Ctrl+F4, 브라우저)");
+                    }
+                    else
+                    {
+                        SendKeys.SendWait("%{F4}");
+                        Debug.WriteLine($"제스처: {gesture} → CloseWindow (Alt+F4)");
+                    }
+                    break;
+
+                case Freight.Models.GestureActionType.CloseTab:
+                    // 탭 닫기 (Ctrl+W)
+                    SendKeys.SendWait("^w");
+                    Debug.WriteLine($"제스처: {gesture} → CloseTab (Ctrl+W)");
+                    break;
+
+                case Freight.Models.GestureActionType.MinimizeWindow:
+                    MinimizeWindow(GetForegroundWindow());
+                    Debug.WriteLine($"제스처: {gesture} → MinimizeWindow");
+                    break;
+
+                case Freight.Models.GestureActionType.MaximizeWindow:
+                    ToggleMaximizeWindow();
+                    Debug.WriteLine($"제스처: {gesture} → MaximizeWindow");
+                    break;
+
+                default:
+                    Debug.WriteLine($"제스처: {gesture} → 알 수 없는 액션: {action}");
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 지정된 창이 브라우저인지 확인
+        /// </summary>
+        private bool IsBrowserWindow(IntPtr hWnd)
         {
             try
             {
-                IntPtr hWnd = GetForegroundWindow();
                 if (hWnd == IntPtr.Zero) return false;
 
                 uint processId;
@@ -830,13 +951,12 @@ namespace Freight
         }
 
         /// <summary>
-        /// 포그라운드 창 최소화
+        /// 지정된 창 최소화
         /// </summary>
-        private void MinimizeForegroundWindow()
+        private void MinimizeWindow(IntPtr hWnd)
         {
             try
             {
-                IntPtr hWnd = GetForegroundWindow();
                 if (hWnd != IntPtr.Zero)
                 {
                     ShowWindow(hWnd, SW_MINIMIZE);

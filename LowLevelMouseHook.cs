@@ -186,7 +186,12 @@ namespace Freight
                 try
                 {
                     MSLLHOOKSTRUCT hookStruct = (MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(MSLLHOOKSTRUCT));
-                    Point location = new Point(hookStruct.pt.x, hookStruct.pt.y);
+
+                    // GetCursorPos를 사용하여 논리적 좌표 획득 (DPI 인식 설정에 맞는 좌표)
+                    // hookStruct.pt는 항상 물리적 좌표를 반환하므로 DPI 스케일링 환경에서 문제 발생
+                    POINT cursorPt;
+                    GetCursorPos(out cursorPt);
+                    Point location = new Point(cursorPt.x, cursorPt.y);
 
                     // 우리가 SendInput으로 보낸 이벤트는 무시 (무한 루프 방지)
                     if (hookStruct.dwExtraInfo == SIMULATED_CLICK_MARKER)

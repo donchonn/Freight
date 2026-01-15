@@ -17,8 +17,14 @@ namespace Freight
             Down,
             Left,
             Right,
-            DownRight,  // 아래 + 오른쪽 (L자)
-            DownLeft    // 대각선 왼쪽 아래
+            DownRight,      // 아래 + 오른쪽 (ㄴ자)
+            DownLeft,       // 아래 + 왼쪽 (ㄱ자 반대)
+            UpRight,        // 위 + 오른쪽
+            UpLeft,         // 위 + 왼쪽
+            DiagDownRight,  // 대각선 오른쪽 아래 (↘)
+            DiagDownLeft,   // 대각선 왼쪽 아래 (↙)
+            DiagUpRight,    // 대각선 오른쪽 위 (↗)
+            DiagUpLeft      // 대각선 왼쪽 위 (↖)
         }
 
         // 제스처 이벤트 인자
@@ -120,32 +126,49 @@ namespace Freight
             if (points.Count < 2)
                 return GestureType.None;
 
-            // 먼저 복합 제스처(DownRight) 체크
+            // 먼저 복합 제스처(L자형) 체크
             GestureType compoundGesture = DetectCompoundGesture();
             if (compoundGesture != GestureType.None)
                 return compoundGesture;
 
-            // 단일 방향 제스처 체크
+            // 단일 방향 및 대각선 제스처 체크
             Point start = points[0];
             Point end = points[points.Count - 1];
 
             int deltaX = end.X - start.X;
             int deltaY = end.Y - start.Y;
 
-            // 대각선 왼쪽 아래 체크 (DownLeft)
-            // Y가 증가하고(아래로), X가 감소하는(왼쪽으로) 경우
-            if (deltaY > MinDistance && deltaX < -MinDistance)
+            // 대각선 제스처 체크 (45도 ± 20도 범위)
+            double angle = Math.Atan2(deltaY, deltaX) * 180 / Math.PI;  // -180 ~ 180
+            double absDeltaX = Math.Abs(deltaX);
+            double absDeltaY = Math.Abs(deltaY);
+
+            // 대각선인지 확인: X와 Y 이동량이 둘 다 최소 거리의 60% 이상
+            bool isDiagonal = absDeltaX > MinDistance * 0.6 && absDeltaY > MinDistance * 0.6;
+
+            if (isDiagonal)
             {
-                double angle = Math.Atan2(deltaY, deltaX) * 180 / Math.PI;
-                // 대각선: 대략 120~150도 범위
-                if (angle >= 120 && angle <= 160)
+                // 대각선 방향 결정
+                if (angle >= 20 && angle <= 70)
                 {
-                    return GestureType.DownLeft;
+                    return GestureType.DiagDownRight;  // ↘
+                }
+                else if (angle >= 110 && angle <= 160)
+                {
+                    return GestureType.DiagDownLeft;   // ↙
+                }
+                else if (angle >= -70 && angle <= -20)
+                {
+                    return GestureType.DiagUpRight;    // ↗
+                }
+                else if (angle >= -160 && angle <= -110)
+                {
+                    return GestureType.DiagUpLeft;     // ↖
                 }
             }
 
             // 주 방향 결정 (수직/수평 중 더 큰 쪽)
-            if (Math.Abs(deltaX) > Math.Abs(deltaY))
+            if (absDeltaX > absDeltaY)
             {
                 // 수평 이동이 더 큼
                 if (deltaX > 0)
@@ -164,7 +187,7 @@ namespace Freight
         }
 
         /// <summary>
-        /// 복합 제스처 감지 (Down + Right = L자 모양)
+        /// 복합 제스처 감지 (L자형: Down+Right, Down+Left, Up+Right, Up+Left)
         /// </summary>
         private GestureType DetectCompoundGesture()
         {
@@ -186,16 +209,21 @@ namespace Freight
             int secondDeltaX = secondEnd.X - secondStart.X;
             int secondDeltaY = secondEnd.Y - secondStart.Y;
 
-            // Down + Right 패턴 감지
-            // 전반부: 아래로 (deltaY > 0, |deltaY| > |deltaX|)
-            // 후반부: 오른쪽으로 (deltaX > 0, |deltaX| > |deltaY|)
+            // 방향 판단 헬퍼
             bool firstIsDown = firstDeltaY > MinDistance / 2 && Math.Abs(firstDeltaY) > Math.Abs(firstDeltaX);
+            bool firstIsUp = firstDeltaY < -MinDistance / 2 && Math.Abs(firstDeltaY) > Math.Abs(firstDeltaX);
             bool secondIsRight = secondDeltaX > MinDistance / 2 && Math.Abs(secondDeltaX) > Math.Abs(secondDeltaY);
+            bool secondIsLeft = secondDeltaX < -MinDistance / 2 && Math.Abs(secondDeltaX) > Math.Abs(secondDeltaY);
 
+            // L자형 패턴 감지
             if (firstIsDown && secondIsRight)
-            {
-                return GestureType.DownRight;
-            }
+                return GestureType.DownRight;   // ㄴ자
+            if (firstIsDown && secondIsLeft)
+                return GestureType.DownLeft;    // ㄱ자 반대
+            if (firstIsUp && secondIsRight)
+                return GestureType.UpRight;
+            if (firstIsUp && secondIsLeft)
+                return GestureType.UpLeft;
 
             return GestureType.None;
         }

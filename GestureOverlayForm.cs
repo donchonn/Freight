@@ -171,6 +171,7 @@ namespace Freight
             points.Clear();
             foreach (Point p in gesturePoints)
             {
+                // dpiAware=false이므로 좌표 변환 없이 직접 사용
                 points.Add(new Point(p.X - virtualScreen.Left, p.Y - virtualScreen.Top));
             }
 

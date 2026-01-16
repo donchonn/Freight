@@ -600,13 +600,15 @@ namespace Freight
         }
 
         /// <summary>
-        /// Ctrl+Shift+A: 현재 활성화된 창 최대화/복원 토글
+        /// 창 최대화/복원 토글
         /// </summary>
-        private void ToggleMaximizeWindow()
+        /// <param name="hWnd">대상 창 핸들. IntPtr.Zero이면 현재 활성 창 사용</param>
+        private void ToggleMaximizeWindow(IntPtr hWnd = default)
         {
             try
             {
-                IntPtr hWnd = GetForegroundWindow();
+                if (hWnd == IntPtr.Zero)
+                    hWnd = GetForegroundWindow();
                 if (hWnd == IntPtr.Zero) return;
 
                 if (IsZoomed(hWnd))
@@ -781,8 +783,11 @@ namespace Freight
         {
             try
             {
-                // 참고: SetForegroundWindow는 다른 창의 Z-order에 영향을 줄 수 있으므로 호출하지 않음
-                // gestureTargetWindow는 IsBrowserWindow, MinimizeWindow 판단용으로만 사용
+                // 제스처 대상 창 활성화 (SendKeys가 마우스 아래 창에 전송되도록)
+                if (gestureTargetWindow != IntPtr.Zero)
+                {
+                    SetForegroundWindow(gestureTargetWindow);
+                }
 
                 // 설정에서 제스처 액션 가져오기
                 var gestureSettings = ConfigManager.Instance.Settings.GestureSettings;
@@ -885,7 +890,7 @@ namespace Freight
 
                 case Freight.Models.GestureActionType.CloseWindow:
                     // 브라우저는 Ctrl+F4 (탭 닫기), 일반 앱은 Alt+F4 (창 닫기)
-                    if (IsBrowserWindow(GetForegroundWindow()))
+                    if (IsBrowserWindow(gestureTargetWindow))
                     {
                         SendKeys.SendWait("^{F4}");
                         Debug.WriteLine($"제스처: {gesture} → CloseTab (Ctrl+F4, 브라우저)");
@@ -904,12 +909,12 @@ namespace Freight
                     break;
 
                 case Freight.Models.GestureActionType.MinimizeWindow:
-                    MinimizeWindow(GetForegroundWindow());
+                    MinimizeWindow(gestureTargetWindow);
                     Debug.WriteLine($"제스처: {gesture} → MinimizeWindow");
                     break;
 
                 case Freight.Models.GestureActionType.MaximizeWindow:
-                    ToggleMaximizeWindow();
+                    ToggleMaximizeWindow(gestureTargetWindow);
                     Debug.WriteLine($"제스처: {gesture} → MaximizeWindow");
                     break;
 

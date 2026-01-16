@@ -107,42 +107,43 @@ namespace Freight
 
         /// <summary>
         /// 수동으로 우클릭 이벤트 전송 (컨텍스트 메뉴 표시용)
+        /// 별도 스레드에서 실행하여 Hook 콜백 블로킹 방지
         /// </summary>
         private static void SimulateRightClick(Point location)
         {
-            INPUT[] inputs = new INPUT[2];
-
-            // Right button down
-            inputs[0] = new INPUT
+            // 별도 스레드에서 실행하여 Hook 콜백이 먼저 완료되도록 함
+            System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
-                type = INPUT_MOUSE,
-                mi = new MOUSEINPUT
+                INPUT[] inputs = new INPUT[2];
+                inputs[0] = new INPUT
                 {
-                    dx = 0,
-                    dy = 0,
-                    mouseData = 0,
-                    dwFlags = MOUSEEVENTF_RIGHTDOWN,
-                    time = 0,
-                    dwExtraInfo = SIMULATED_CLICK_MARKER
-                }
-            };
-
-            // Right button up
-            inputs[1] = new INPUT
-            {
-                type = INPUT_MOUSE,
-                mi = new MOUSEINPUT
+                    type = INPUT_MOUSE,
+                    mi = new MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 0,
+                        dwFlags = MOUSEEVENTF_RIGHTDOWN,
+                        time = 0,
+                        dwExtraInfo = SIMULATED_CLICK_MARKER
+                    }
+                };
+                inputs[1] = new INPUT
                 {
-                    dx = 0,
-                    dy = 0,
-                    mouseData = 0,
-                    dwFlags = MOUSEEVENTF_RIGHTUP,
-                    time = 0,
-                    dwExtraInfo = SIMULATED_CLICK_MARKER
-                }
-            };
+                    type = INPUT_MOUSE,
+                    mi = new MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 0,
+                        dwFlags = MOUSEEVENTF_RIGHTUP,
+                        time = 0,
+                        dwExtraInfo = SIMULATED_CLICK_MARKER
+                    }
+                };
 
-            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+                SendInput(2, inputs, Marshal.SizeOf(typeof(INPUT)));
+            });
         }
 
         /// <summary>
